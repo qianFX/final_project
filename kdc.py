@@ -30,7 +30,7 @@ class KDC:
         # self.test_data = test_data
         self.encoding = encoding
         self.feature_selection = feature
-        self.features = []
+        self.features = np.empty(41, dtype=str)
         self.attack_categories = {}
         self.x, self.y = self.data_preparation(train_data, test_data)
 
@@ -47,7 +47,7 @@ class KDC:
         plt.plot(np.arange(1, n + 1), variance_ratio)
         plt.show()
 
-    def data_preparation(self, train_data: str, test_data: str) -> (pd.DataFrame, pd.DataFrame):
+    def data_preparation(self, train_data: str, test_data: str) -> (np.ndarray, np.ndarray):
         names = ["duration", "protocol_type", "service", "flag", "src_bytes", "dst_bytes", "land",
                  "wrong_fragment",
                  "urgent",
@@ -187,7 +187,7 @@ class KDC:
         x = selector.transform(x)
         return x
 
-    def tree_based_feature_selection(self, x, y):
+    def tree_based_feature_selection(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
         n = len(self.features)
         forest = ExtraTreesClassifier(n_estimators=250, random_state=0)
         forest.fit(x, y)
@@ -201,13 +201,20 @@ class KDC:
             print("%d. feature %d: %s (%f)" % (f + 1, indices[f], self.features[indices[f]],importances[indices[f]]))
 
         # Plot the feature importances of the forest
-        plt.figure()
-        plt.title("Feature importances")
-        plt.bar(range(n), importances[indices],
-                color="r", yerr=std[indices], align="center")
-        plt.xticks(range(n), indices)
-        plt.xlim([-1, n])
-        plt.show()
+        # plt.figure()
+        # plt.title("Feature importances")
+        # plt.bar(range(n), importances[indices],
+        #         color="r", yerr=std[indices], align="center")
+        # plt.xticks(range(n), indices)
+        # plt.xlim([-1, n])
+        # plt.show()
+        n = 12
+        print(indices[0:n+1])
+        print(self.features[indices[0:n+1]])
+        new_x = x[:, indices[0:n+1]]
+        return new_x
+
+
 
     def recursive_feature_elimination(self, x: np.ndarray, y: np.ndarray, clf=None) -> np.ndarray:
         selector = RFECV(estimator=clf, step=1, cv=StratifiedKFold(y), scoring='accuracy', verbose=True)
