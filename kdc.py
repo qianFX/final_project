@@ -14,7 +14,7 @@ from sklearn.feature_selection import chi2
 from sklearn.feature_selection import RFECV
 from sklearn.cross_validation import StratifiedKFold
 
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 
 
 class KDC:
@@ -23,15 +23,17 @@ class KDC:
     UNIVARIATE_FEATURES_SELECTION = "univariate_features_selection"
     RECURSIVE_FEATURE_ELIMINATION = "recursive_feature_elimination"
     DIMENSION_REDUCTION = "dimension_reduction"
+    TREE_BASED_FEATURE_SELECTION = "tree_based_feature_selection"
 
     def __init__(self, train_data: str, test_data: str, encoding: str, feature: str):
         # self.train_data = train_data
         # self.test_data = test_data
         self.encoding = encoding
         self.feature_selection = feature
-        self.x, self.y = self.data_preparation(train_data, test_data)
         self.features = []
         self.attack_categories = {}
+        self.x, self.y = self.data_preparation(train_data, test_data)
+
 
     @staticmethod
     def plot_variance(df, variance_ratio):
@@ -153,13 +155,13 @@ class KDC:
         print(le.classes_)
         return x, y
 
-    def select_feature(self, x: np.ndarray, y: np.ndarray, clf) -> np.ndarray:
+    def select_features(self, x: np.ndarray, y: np.ndarray, clf) -> np.ndarray:
         if self.feature_selection == self.UNIVARIATE_FEATURES_SELECTION:
             x = self.univariate_features_selection(x, y)
         elif self.feature_selection == self.DIMENSION_REDUCTION:
             x = self.dimension_reduction(x)
-        # elif self.feature_selection ==
-
+        elif self.feature_selection == self.TREE_BASED_FEATURE_SELECTION:
+            x = self.tree_based_feature_selection(x, y)
         elif self.feature_selection == self.RECURSIVE_FEATURE_ELIMINATION:
             x = self.recursive_feature_elimination(x, y, clf)
         return x
@@ -186,6 +188,7 @@ class KDC:
         return x
 
     def tree_based_feature_selection(self, x, y):
+        n = len(self.features)
         forest = ExtraTreesClassifier(n_estimators=250, random_state=0)
         forest.fit(x, y)
         importances = forest.feature_importances_
@@ -194,20 +197,21 @@ class KDC:
         indices = np.argsort(importances)[::-1]
         print("Feature ranking:")
 
-        for f in range(10):
-            print("%d. feature %d (%f)" % (f + 1, indices[f], importances[indices[f]]))
+        for f in range(n):
+            print("%d. feature %d: %s (%f)" % (f + 1, indices[f], self.features[indices[f]],importances[indices[f]]))
 
         # Plot the feature importances of the forest
         plt.figure()
         plt.title("Feature importances")
-        plt.bar(range(10), importances[indices],
+        plt.bar(range(n), importances[indices],
                 color="r", yerr=std[indices], align="center")
-        plt.xticks(range(10), indices)
-        plt.xlim([-1, 10])
+        plt.xticks(range(n), indices)
+        plt.xlim([-1, n])
         plt.show()
 
     def recursive_feature_elimination(self, x: np.ndarray, y: np.ndarray, clf=None) -> np.ndarray:
-        selector = RFECV(estimator=clf, step=1, cv=StratifiedKFold(y), scoring='accuracy')
+        selector = RFECV(estimator=clf, step=1, cv=StratifiedKFold(y), scoring='accuracy', verbose=True)
+        print("begin eliminate")
         selector.fit(x, y)
 
         print("Optimal number of features : %d" % selector.n_features_)
@@ -247,13 +251,14 @@ class KDC:
 
     def data_validation(self, x: np.ndarray, y: np.ndarray, clf, name: str):
         n = 10
-        kf = StratifiedKFold(len(x), n_folds=n)
+        kf = StratifiedKFold(y, n_folds=n)
         a_scores = 0
         # create a empty matrix
         n_y = len(self.attack_categories) + 1
         total_matrix = np.zeros((n_y, n_y))
 
-        for train_index, test_index in kf:
+        for i, (train_index, test_index) in enumerate(kf):
+            print("cross: ", i)
             x_train, x_test, y_train, y_test = x[train_index], x[test_index], y[train_index], y[test_index]
             clf = clf.fit(x_train, y_train)
 
@@ -270,7 +275,7 @@ class KDC:
     def decision_tree(self):
 
         clf = tree.DecisionTreeClassifier(criterion='entropy', min_samples_split=100, min_samples_leaf=100)
-        self.x = self.select_feature(self.x, self.y, clf)
+        self.x = self.select_features(self.x, self.y, clf)
         # tree.export_graphviz(clf, out_file='decision_tree.dot')
         # cmd = "dot -Tpng decision_tree.dot -o decision_tree.png".split()
         # subprocess.call(cmd)
@@ -280,23 +285,20 @@ class KDC:
         clf = RandomForestClassifier(n_estimators=100, max_features=10, criterion='entropy', n_jobs=10,
                                      min_samples_split=100,
                                      min_samples_leaf=100)
-        self.x = self.select_feature(self.x, self.y, clf)
+        self.x = self.select_features(self.x, self.y, clf)
         self.data_validation(self.x, self.y, clf, self.random_forest.__name__)
 
     def support_vector_classification(self):
-        clf = SVC(kernel="linear")
-        self.x = self.select_feature(self.x, self.y, clf)
+        clf = LinearSVC()
+        # self.x = self.select_feature(self.x, self.y, clf)
         self.data_validation(self.x, self.y, clf, self.support_vector_classification.__name__)
 
 
 if __name__ == "__main__":
-    kdc = KDC("kddcup.data_10_percent_corrected", "corrected", KDC.LABEL_ENCODING, KDC.RECURSIVE_FEATURE_ELIMINATION)
-    # kdc = KDC("kddcup.data_10_percent_corrected", "corrected", KDC.ONE_HOT_ENCODING, KDC.DIMENSION_REDUCTION)
-    # kdc.decision_tree()
+    kdc = KDC("kddcup.data_10_percent_corrected", "corrected", KDC.LABEL_ENCODING, KDC.TREE_BASED_FEATURE_SELECTION)
+    kdc.decision_tree()
     # kdc.random_forest()
-    kdc.support_vector_classification()
-    # kdc = KDC("kddcup.data_10_percent_corrected", "corrected", KDC.ONE_HOT_ENCODING)
-    # kdc.decision_tree()
+    # kdc.support_vector_classification()
 
     # kdc.random_forest()
     # with concurrent.futures.ProcessPoolExecutor() as executor:
